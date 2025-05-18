@@ -1,0 +1,38 @@
+---
+title: "Bioinformatics Project"
+author: "Ibrahim Mohamed Elsayed Moustafa Omar | 21010023\n
+        Mohamed Mohamed Mohamed Abdelmonaem | 21011213"
+date: "2025-05-18"
+output: word_document
+---
+#Reading the data
+##Converting .bed .bim .fam files to .map .ped files
+![Alt text or caption](plinkCommand.png)
+
+##Converting .map .ped files to .gds files 
+```{r}
+# install.packages("BiocManager")
+# BiocManager::install(c("SNPRelate", "GENESIS", "GWASTools"))
+library(SNPRelate)
+
+# Define the file names
+ped.fn <- "Qatari156_filtered_pruned.ped"
+map.fn <- "Qatari156_filtered_pruned.map"
+gds.fn <- "Qatari156_filtered_pruned.gds"
+
+# Convert to GDS format
+snpgdsPED2GDS(ped.fn, map.fn, out.gdsfn = gds.fn)
+# Open the GDS file
+genofile <- snpgdsOpen(gds.fn)
+# Check the GDS file
+snpgdsSummary(genofile)
+```
+
+##Reading the metabolites data from .csv file
+```{r}
+metabolites <- read.csv("qatari_metabolites_2025.csv", header = TRUE)
+
+# Check the first few rows of the data
+head(metabolites)
+```
+
