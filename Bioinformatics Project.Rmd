@@ -3,6 +3,14 @@ title: "Bioinformatics Project"
 author: "Ibrahim Mohamed Elsayed Moustafa Omar | 21010023\n
         Mohamed Mohamed Mohamed Abdelmonaem | 21011213"
 ---
+```{r}
+# Run before commiting
+save.image(file = "my_workspace.RData")
+```
+```{r}
+# Run after opening the project
+load("my_workspace.RData")
+```
 #Reading the data
 ##Converting .bed .bim .fam files to .map .ped files
 ![Alt text or caption](plinkCommand.png)
@@ -37,6 +45,7 @@ metabolites <- read.csv("qatari_metabolites_2025.csv", header = TRUE)
 head(metabolites)
 ```
 
+
 #Task 1: Compute Kinship using SNPRelate and GENESIS
 ###Compute IBD Coefficients (Kinship Estimation)
 ```{r}
@@ -55,18 +64,24 @@ ibd.coeff <- snpgdsIBDSelection(ibd)
 
 print(ibd.coeff)
 ```
-
+```{r}
+class(covariates)
+```
+```{r}
+ls()
+```
 ##Convert SNPRelate Object to GENESIS Format
 ```{r}
 library(GWASTools)
 library(GENESIS)
-
 # Create GDS reader object
 gds <- GdsGenotypeReader(gds.fn)
 
 # Create GenotypeData object for GENESIS
 genoData <- GenotypeData(gds)
-print(genoData)
+
+covariates <- getScanAnnotation(genoData)
+head(pData(covariates)) # View as data frame
 ```
 
 ##Use GENESIS to Calculate Kinship Matrix
@@ -91,6 +106,9 @@ for (i in seq_len(nrow(ibd.coeff))) {
         kinMat[id2, id1] <- kin
 }
 ```
+
+
+# Check the kinship matrix
 ```{r}
 # Run PC-AiR (needed to properly calculate kinship for related individuals)
 pca <- pcair(genoData, kinobj = kinMat)
@@ -127,7 +145,31 @@ paste("Number of individuals with kinship > 0.1:", sum(kin_above_thresh))
 ```
 
 #Task 5: Metabolic Networks
+##Correct metabolites for covariates and kinship using polygenic() residuals
 ```{r}
+covariates <- getScanAnnotation(genoData)
+head(covariates) # View as data frame
+
+# Matrix to hold residuals
+residuals_mat <- matrix(NA, nrow = nrow(metabolites), ncol = ncol(metabolites))
+colnames(residuals_mat) <- colnames(metabolites)
+rownames(residuals_mat) <- rownames(metabolites)
+
+# Loop through metabolites and get residuals from polygenic model
+for (i in 1:ncol(metabolites)) {
+        pheno <- metabolites[, i]
+
+        # Construct phenotype data with covariates
+        pheno_df <- cbind.data.frame(pheno = pheno, covariates)
+
+        # Run polygenic model
+        pg <- polygenic(pheno ~ ., data = pheno_df, kinship = kinMat)
+
+        # Save residuals
+        residuals_mat[, i] <- residuals(pg)
+}
+
+head(residuals_mat)
 ```
 #Task 6: Annotate Significant SNPs
 ```{r}
