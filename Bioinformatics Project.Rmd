@@ -114,5 +114,24 @@ kin_above_thresh <- apply(kinMat, 1, function(x) any(x > 0.1))
 # Report how many individuals meet this criterion
 paste("Number of individuals with kinship > 0.1:", sum(kin_above_thresh))
 ```
+#Task 2: Compute mQTLs with Mixed Models
+```{r}
+```
 
+#Task 3: Inflation factor calculation
+```{r}
+```
 
+#Task 4: Manhattan Plot
+```{r}
+```
+
+#Task 5: Metabolic Networks
+```{r}
+```
+#Task 6: Annotate Significant SNPs
+```{r}
+```
+#Task 7: Regional plots using SNIPA
+```{r}
+```
