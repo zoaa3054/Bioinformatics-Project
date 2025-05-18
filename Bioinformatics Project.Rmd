@@ -10,6 +10,8 @@ save.image(file = "my_workspace.RData")
 ```{r}
 # Run after opening the project
 load("my_workspace.RData")
+print("Your variables:")
+ls()
 ```
 #Reading the data
 ##Converting .bed .bim .fam files to .map .ped files
@@ -18,7 +20,9 @@ load("my_workspace.RData")
 ##Converting .map .ped files to .gds files 
 ```{r}
 # install.packages("BiocManager")
-BiocManager::install(c("SNPRelate", "GENESIS", "GWASTools"), force = TRUE)
+# BiocManager::install(c("SNPRelate", "GENESIS", "GWASTools"), force = TRUE)
+# install.packages("coxme")
+# install.packages("GeneNet")
 ```
 ```{r}
 library(SNPRelate)
@@ -64,24 +68,19 @@ ibd.coeff <- snpgdsIBDSelection(ibd)
 
 print(ibd.coeff)
 ```
-```{r}
-class(covariates)
-```
-```{r}
-ls()
-```
+
 ##Convert SNPRelate Object to GENESIS Format
 ```{r}
 library(GWASTools)
 library(GENESIS)
+
 # Create GDS reader object
 gds <- GdsGenotypeReader(gds.fn)
 
 # Create GenotypeData object for GENESIS
 genoData <- GenotypeData(gds)
 
-covariates <- getScanAnnotation(genoData)
-head(pData(covariates)) # View as data frame
+print(genoData) # View as data frame
 ```
 
 ##Use GENESIS to Calculate Kinship Matrix
@@ -106,9 +105,6 @@ for (i in seq_len(nrow(ibd.coeff))) {
         kinMat[id2, id1] <- kin
 }
 ```
-
-
-# Check the kinship matrix
 ```{r}
 # Run PC-AiR (needed to properly calculate kinship for related individuals)
 pca <- pcair(genoData, kinobj = kinMat)
@@ -147,30 +143,100 @@ paste("Number of individuals with kinship > 0.1:", sum(kin_above_thresh))
 #Task 5: Metabolic Networks
 ##Correct metabolites for covariates and kinship using polygenic() residuals
 ```{r}
-covariates <- getScanAnnotation(genoData)
-head(covariates) # View as data frame
+library(Matrix)
+library(coxme) # Load coxme for lmekin
 
-# Matrix to hold residuals
-residuals_mat <- matrix(NA, nrow = nrow(metabolites), ncol = ncol(metabolites))
-colnames(residuals_mat) <- colnames(metabolites)
-rownames(residuals_mat) <- rownames(metabolites)
+# Create a kinship matrix suitable for lmekin
+kin_mat <- as.matrix(kinMat)
+kin_mat <- kin_mat[pca$sample.id, pca$sample.id] # Align rows/cols
+# Add a small value to the diagonal to ensure positive definiteness
+kin_mat <- kin_mat + diag(1e-6, nrow(kin_mat))
+# Force kin_mat to be positive semi-definite using nearPD
+kin_mat <- as.matrix(Matrix::nearPD(kin_mat)$mat)
 
-# Loop through metabolites and get residuals from polygenic model
-for (i in 1:ncol(metabolites)) {
-        pheno <- metabolites[, i]
+corrected_metabs <- data.frame(sample.id = pca$sample.id)
 
-        # Construct phenotype data with covariates
-        pheno_df <- cbind.data.frame(pheno = pheno, covariates)
+for (metab in colnames(metabolites)) {
+        df <- data.frame(
+                value = as.numeric(metabolites[[metab]]),
+                PC1 = as.numeric(pca$vectors[, 1]),
+                PC2 = as.numeric(pca$vectors[, 2]),
+                PC3 = as.numeric(pca$vectors[, 3]),
+                id = pca$sample.id
+        )
+        # Remove rows with NA values
+        df <- na.omit(df)
+        if (nrow(df) == 0) {
+                warning(paste("No valid data for metabolite:", metab))
+                next
+        }
+        # Mixed model using kinship as random effect
+        model <- lmekin(value ~ PC1 + PC2 + PC3 + (1 | id),
+                data = df,
+                varlist = kin_mat
+        )
+        # Residuals = corrected metabolite
+        corrected_metabs[[metab]] <- resid(model)
+}
+head(corrected_metabs)
+```
 
-        # Run polygenic model
-        pg <- polygenic(pheno ~ ., data = pheno_df, kinship = kinMat)
+##Use GeneNet to Compute Partial Correlation Network
+```{r}
+library(GeneNet)
+# Remove columns with all NA or zero variance
+good_cols <- colSums(is.na(corrected_mat)) < nrow(corrected_mat) & apply(corrected_mat, 2, function(x) var(x, na.rm = TRUE) > 0)
+corrected_mat <- corrected_mat[, good_cols]
+# Remove rows with any NA values
+corrected_mat <- na.omit(corrected_mat)
 
-        # Save residuals
-        residuals_mat[, i] <- residuals(pg)
+# Estimate shrinkage partial correlations
+pcor <- ggm.estimate.pcor(corrected_mat)
+
+# Test edges
+network <- network.test.edges(pcor)
+
+# Try a higher FDR threshold if no edges at 0.05
+sig_edges <- network[network$qval < 0.05, ]
+if (nrow(sig_edges) == 0) {
+        sig_edges <- network[network$qval < 0.1, ]
+        message(paste("No edges at FDR < 0.05. Using FDR < 0.1:", nrow(sig_edges), "edges found."))
+} else {
+        message(paste("Edges found at FDR < 0.05:", nrow(sig_edges)))
 }
 
-head(residuals_mat)
+# Try even higher FDR thresholds if no edges at 0.1
+if (nrow(sig_edges) == 0) {
+        sig_edges <- network[network$qval < 0.2, ]
+        if (nrow(sig_edges) == 0) {
+                sig_edges <- network[network$qval < 0.25, ]
+                if (nrow(sig_edges) == 0) {
+                        message("No significant edges found at FDR < 0.25.")
+                } else {
+                        message(paste("Edges found at FDR < 0.25:", nrow(sig_edges)))
+                }
+        } else {
+                message(paste("Edges found at FDR < 0.2:", nrow(sig_edges)))
+        }
+}
+
+# Prepare edge list for Cytoscape
+if (nrow(sig_edges) > 0) {
+        cyto_edges <- sig_edges[, c("node1", "node2", "pcor", "qval")]
+        colnames(cyto_edges)[1:2] <- c("source", "target")
+        write.csv(cyto_edges, "Significant_Metabolite_Network_Cytoscape.csv", row.names = FALSE)
+} else {
+        message("No significant edges found at FDR < 0.25.")
+}
 ```
+##Visualize in Cytoscape
+![Alt text or caption](cytoscapeNetwork.png)
+##Analyze Network in Cytoscape
+```{r}
+cytoscapeNetworkAnalysis <- read.csv("cytoscapeNetworkAnalysis.csv", header = TRUE)
+print(cytoscapeNetworkAnalysis)
+```
+
 #Task 6: Annotate Significant SNPs
 ```{r}
 ```
