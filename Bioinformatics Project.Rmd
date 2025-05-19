@@ -3,16 +3,18 @@ title: "Bioinformatics Project"
 author: "Ibrahim Mohamed Elsayed Moustafa Omar | 21010023\n
         Mohamed Mohamed Mohamed Abdelmonaem | 21011213"
 ---
-```{r}
-# Run before commiting
-save.image(file = "my_workspace.RData")
-```
-```{r}
+```{r load_workspace, include=FALSE}
 # Run after opening the project
 load("my_workspace.RData")
 print("Your variables:")
 ls()
 ```
+
+```{r}
+# Run before commiting
+save.image(file = "my_workspace.RData")
+```
+
 #Reading the data
 ##Converting .bed .bim .fam files to .map .ped files
 ![Alt text or caption](plinkCommand.png)
@@ -182,9 +184,7 @@ se <- SummarizedExperiment(
         colData = sampleTable_sub
 )
 ```
-```{r}
-(assay(se, "metab")[, m])
-```
+
 ```{r}
 all(rownames(kinMat) %in% pd$sample.id) # Should be TRUE
 all(pd$sample.id %in% rownames(kinMat)) # Should be TRUE
@@ -356,6 +356,54 @@ cat("\nAverage inflation factor (weighted):", round(average_lambda, 4), "\n")
 
 #Task 4: Manhattan Plot
 ```{r}
+library(qqman)
+
+# 1. Prepare your data
+manhattan_data <- data.frame(
+        SNP = allResults$variant.id, # SNP IDs
+        CHR = as.numeric(allResults$chr), # Chromosome as numeric
+        BP = allResults$pos, # Base pair position
+        P = allResults$Score.pval # P-values
+)
+
+# 2. Create Manhattan plot
+manhattan(manhattan_data,
+        main = "mQTL Manhattan Plot",
+        ylim = c(0, 10), # Adjust based on your p-values
+        suggestiveline = -log10(1e-4), # Suggestive threshold
+        genomewideline = -log10(5e-8), # Genome-wide significant
+        col = c("blue4", "orange3"), # Alternating colors
+        cex = 0.6, # Point size
+        cex.axis = 0.9
+) # Axis text size
+```
+
+```{r}
+library(dplyr)
+library(ggplot2)
+# 1. Prepare data with chromosome colors
+plot_data <- manhattan_data %>%
+        group_by(CHR) %>%
+        mutate(color = if_else(CHR %% 2 == 1, "odd", "even"))
+
+# 2. Create plot
+ggplot(plot_data, aes(x = BP, y = -log10(P), color = color)) +
+        geom_point(alpha = 0.6, size = 1.5) +
+        facet_grid(. ~ CHR, scales = "free_x", space = "free_x") +
+        geom_hline(yintercept = -log10(5e-8), color = "red", linetype = "dashed") +
+        geom_hline(yintercept = -log10(1e-4), color = "blue", linetype = "dashed") +
+        scale_color_manual(values = c("odd" = "deepskyblue3", "even" = "goldenrod2")) +
+        labs(
+                title = "mQTL Manhattan Plot",
+                x = "Chromosomal Position",
+                y = "-log10(p-value)"
+        ) +
+        theme_minimal() +
+        theme(
+                legend.position = "none",
+                panel.spacing.x = unit(0.1, "lines"),
+                axis.text.x = element_blank()
+        )
 ```
 
 #Task 5: Metabolic Networks
@@ -470,12 +518,32 @@ print(cytoscapeNetworkAnalysis)
 
 #Task 6: Annotate Significant SNPs
 ```{r}
+library(dplyr)
+
+top20_snps <- allResults %>%
+        arrange(Score.pval) %>%
+        distinct(variant.id, .keep_all = TRUE) %>%
+        slice(1:20)
+
+annovar_input <- data.frame(
+        chr = top20_snps$chr,
+        start = top20_snps$pos,
+        end = top20_snps$pos,
+        ref = substr(top20_snps$allele.index, 1, 1), # First allele as ref
+        alt = substr(top20_snps$allele.index, 3, 3), # Second allele as alt
+        snp_id = top20_snps$variant.id,
+        stringsAsFactors = FALSE
+)
+
+# 3. Write ANNOVAR input (tab-delimited, no header)
+write.table(annovar_input, "top_snps_annovar_input.txt",
+        sep = "\t", quote = FALSE, row.names = FALSE, col.names = FALSE
+)
 ```
 #Task 7: Regional plots using SNIPA
 ```{r}
-```
-
-```{r}
-# Close GDS file
-close(genoData)
+top5_snps <- allResults %>%
+        arrange(Score.pval) %>%
+        distinct(variant.id, .keep_all = TRUE) %>%
+        slice(1:5)
 ```
