@@ -188,55 +188,62 @@ head(corrected_metabs)
 
 ##Use GeneNet to Compute Partial Correlation Network
 ```{r}
-# Input: corrected_metabs (data.frame with sample.id + metabolite columns)
-# Output: Cytoscape-ready network files (edges.csv and nodes.csv)
-
-# 1. Load required package
+# Load required package
 library(GeneNet)
 
-# 2. Prepare metabolite matrix
-metab_data <- corrected_metabs[, !colnames(corrected_metabs) %in% "sample.id", drop = FALSE]
+# 1. Prepare metabolite data (samples=rows, metabolites=columns)
+metab_data <- corrected_metabs[, -1] # Exclude sample.id column
 rownames(metab_data) <- corrected_metabs$sample.id
 
-# 3. Clean data - remove zero-variance and mostly-NA metabolites
-keep_metabs <- apply(metab_data, 2, function(x) var(x, na.rm = TRUE) > 0)
-metab_clean <- metab_data[, keep_metabs, drop = FALSE]
-metab_clean <- na.omit(metab_clean) # Remove samples with any NAs
+# 2. Clean data - remove invariant metabolites and samples with NAs
+metab_clean <- metab_data[, apply(metab_data, 2, var, na.rm = TRUE) > 0]
+metab_clean <- na.omit(metab_clean)
+metabolite_names <- colnames(metab_clean)
 
-# 4. Compute partial correlations
-pcor_matrix <- ggm.estimate.pcor(t(metab_clean), method = "dynamic")
-used_metabs <- pcor_matrix
-# 5. Test for significant edges
+# 3. Compute partial correlations between METABOLITES (columns)
+# Note: We DON'T transpose here - metabolites should be columns
+pcor_matrix <- ggm.estimate.pcor(metab_clean, method = "dynamic")
+rownames(pcor_matrix) <- colnames(pcor_matrix) <- metabolite_names
+
+# 4. Test for significant metabolite-metabolite edges
 network_test <- network.test.edges(pcor_matrix, fdr = TRUE, direct = TRUE)
-print(head(pcor_matrix))
-# 6. Create edges data frame - convert indices to names immediately
+
+# 5. Create edges data frame with metabolite names
 edges <- data.frame(
-        source = used_metabs[network_test$node1],
-        target = used_metabs[network_test$node2],
+        source = metabolite_names[network_test$node1],
+        target = metabolite_names[network_test$node2],
         pcor = network_test$pcor,
         pval = network_test$pval,
         stringsAsFactors = FALSE
 )
 
-# 7. Filter significant edges (FDR < 0.05)
-sig_edges <- edges[edges$pval < 0.05 & !is.na(edges$pval), ]
+# 6. Remove any NA values and filter significant edges
+edges <- edges[complete.cases(edges), ]
+sig_edges <- edges[edges$pval < 0.05, ]
 
-# 8. Create nodes data frame
+# 7. Create nodes data frame
 nodes <- data.frame(
-        id = used_metabs,
+        id = metabolite_names,
         nodeType = "metabolite",
         stringsAsFactors = FALSE
 )
 
-# 9. Save results
+# 8. Save results
 write.csv(sig_edges, "metabolite_network_edges.csv", row.names = FALSE)
 write.csv(nodes, "metabolite_network_nodes.csv", row.names = FALSE)
 
-# 10. Print summary
-cat("Network analysis completed:\n")
-cat("-", nrow(metab_clean), "samples\n")
-cat("-", length(used_metabs), "metabolites analyzed\n")
-cat("-", nrow(sig_edges), "significant edges found\n")
+# 9. Verification output
+cat("=== Network Analysis Results ===\n")
+cat("Samples analyzed:", nrow(metab_clean), "\n")
+cat("Metabolites analyzed:", length(metabolite_names), "\n")
+cat("Significant edges (q < 0.05):", nrow(sig_edges), "\n")
+
+if (nrow(sig_edges) > 0) {
+        cat("\nSample of significant edges:\n")
+        print(head(sig_edges, 5))
+} else {
+        cat("\nNo significant edges found at q < 0.05\n")
+}
 ```
 ##Visualize in Cytoscape
 ![Alt text or caption](cytoscapeNetwork.png)
