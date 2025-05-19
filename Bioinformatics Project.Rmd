@@ -133,8 +133,183 @@ cat("Number of individual pairs with kinship > 0.1:", num_pairs, "\n")
 cat("Number of unique individuals involved:", num_individuals, "\n")
 ```
 #Task 2: Compute mQTLs with Mixed Models
+
+## load needed packages
 ```{r}
+library(SNPRelate)
+library(SeqVarTools)
+library(GENESIS)
+library(SummarizedExperiment)
+library(writexl)
 ```
+
+
+
+```{r}
+metab_t <- metabolites
+rownames(metab_t) <- metabolites$Sample
+setdiff(covar$sample.id, rownames(metab_t))
+
+#metab_t <- as.data.frame(t(metab_t[ , -1]))  
+
+metab_t <- (metab_t[ , -1]) 
+
+```
+```{r}
+
+# Make sample-level table
+sampleTable <- merge(covar, data.frame(sample.id=rownames(metab_t)), by="sample.id")
+
+# Check overlap
+common_ids <- intersect(sampleTable$sample.id, rownames(metab_t))
+length(common_ids)  # Should match nrow(sampleTable)
+
+# Subset both to common IDs
+sampleTable_sub <- sampleTable[sampleTable$sample.id %in% common_ids, ]
+metab_sub <- metab_t[common_ids, ]
+
+# Reorder both to the same sample ID order
+sampleTable_sub <- sampleTable_sub[order(sampleTable_sub$sample.id), ]
+metab_sub <- metab_sub[order(rownames(metab_sub)), ]
+
+metab_fixed <- t(metab_sub)  # Now 20 rows × 156 columns
+
+# Check alignment again
+stopifnot(identical(colnames(metab_fixed), sampleTable_sub$sample.id))
+
+# Build the SE object
+se <- SummarizedExperiment(
+  assays = SimpleList(metab = metab_fixed),
+  colData = sampleTable_sub
+)
+```
+```{r}
+(assay(se, "metab")[ , m])
+```
+```{r}
+all(rownames(kinMat) %in% pd$sample.id)   # Should be TRUE
+all(pd$sample.id %in% rownames(kinMat))   # Should be TRUE
+
+all(rownames(kinMat) == colnames(kinMat)) # Should be TRUE (kinship matrix must be symmetric)
+```
+
+```{r}
+library(Matrix)
+
+kinMat_PD <- as.matrix(nearPD(kinMat)$mat)
+nullMods <- list()
+
+for (m in rownames(assay(se, "metab"))) {
+  pheno <- data.frame(
+    sample.id = colnames(assay(se, "metab")),
+    y = assay(se, "metab")[m, ]
+  )
+  
+  pd <- merge(sampleTable, pheno, by = "sample.id")
+  rownames(pd) <- pd$sample.id
+  pd <- pd[rownames(kinMat_PD), ]
+  
+  nullMods[[m]] <- GENESIS::fitNullModel(
+    x = pd,
+    outcome = "y",
+    covars = c("PC1", "PC2", "PC3"),
+    family = "gaussian",
+    cov.mat = kinMat_PD
+  )
+}
+
+```
+
+```{r}
+kinMat_PD <- as.matrix(nearPD(kinMat)$mat)
+nullMods <- list()
+pheno_data_list <- list() # Store phenotype data frames for creating SeqVarData
+
+for (m in rownames(assay(se, "metab"))) {
+  # Create phenotype data frame for the current metabolite
+  pheno <- data.frame(
+    sample.id = colnames(assay(se, "metab")),
+    y = assay(se, "metab")[m, ]
+  )
+
+  # Merge with sample metadata and ensure sample order matches kinship matrix
+  pd <- merge(sampleTable, pheno, by = "sample.id")
+  rownames(pd) <- pd$sample.id
+  pd <- pd[rownames(kinMat_PD), ] # Ensure order matches kinMat_PD
+
+  # Store the prepared phenotype data frame for later use with SeqVarData
+  pheno_data_list[[m]] <- pd
+
+  # Fit the null model for the current metabolite
+  nullMods[[m]] <- GENESIS::fitNullModel(
+    x = pd, # Use the prepared data frame
+    outcome = "y",
+    covars = c("PC1", "PC2", "PC3"),
+    family = "gaussian",
+    cov.mat = kinMat_PD
+  )
+}
+```
+
+
+```{r}
+library(SeqVarTools)
+library(SeqArray)
+library(SNPRelate)
+library(Biobase)
+
+
+# Open the SeqArray GDS file
+seq_file <- "Qatari156_filtered_pruned_SeqArray.gds"
+geno_file <- seqOpen(seq_file)
+
+
+seqData <- SeqVarData(geno_file)
+iterator <- SeqVarBlockIterator(seqData)
+
+
+allResults <- do.call(rbind, lapply(names(nullMods), function(m) {
+  at <- assocTestSingle(
+    null.model = nullMods[[m]],
+    gdsobj = iterator,  
+    test = "Score"
+  )
+  if (nrow(at) > 0) {
+    cbind(metabolite = m, at)
+  } else {
+    NULL  # skip if empty
+  }
+}))
+
+
+seqClose(iterator)
+```
+
+```{r}
+colnames(allResults)
+```
+
+
+```{r}
+
+# 1. Filter significant results
+significantResults <- allResults[allResults$Score.pval < 0.0001, ]
+
+# 2. Create a clean data frame with only relevant columns
+output <- data.frame(
+  metabolite     = significantResults$metabolite,
+  beta           = significantResults$Est,
+  SE             = significantResults$Est.SE,
+  effect.allele  = significantResults$allele.index,
+  n              = significantResults$n.obs,
+  pval           = significantResults$Score.pval
+)
+
+# 3. Write to Excel
+write_xlsx(output, path = "mQTL_significant_p1e4.xlsx")
+
+```
+
 #Task 3: Inflation factor calculation
 ```{r}
 ```
