@@ -15,11 +15,11 @@ ls()
 save.image(file = "my_workspace.RData")
 ```
 
-#Reading the data
-##Converting .bed .bim .fam files to .map .ped files
+# Reading the data
+## Converting .bed .bim .fam files to .map .ped files
 ![Alt text or caption](plinkCommand.png)
 
-##Converting .map .ped files to .gds files 
+## Converting .map .ped files to .gds files 
 ```{r}
 # install.packages("BiocManager")
 # BiocManager::install(c("SNPRelate", "GENESIS", "GWASTools"), force = TRUE)
@@ -50,7 +50,7 @@ snpgdsSummary(genofile)
 snpgdsClose(genofile)
 ```
 
-##Reading the metabolites data from .csv file
+## Reading the metabolites data from .csv file
 ```{r}
 metabolites <- read.csv("qatari_metabolites_2025.csv", header = TRUE)
 
@@ -59,8 +59,8 @@ head(metabolites)
 ```
 
 
-#Task 1: Compute Kinship using SNPRelate and GENESIS
-###Compute IBD Coefficients (Kinship Estimation)
+# Task 1: Compute Kinship using SNPRelate and GENESIS
+### Compute IBD Coefficients (Kinship Estimation)
 ```{r}
 # Complete Kinship Analysis Workflow (Verified 2024)
 library(SNPRelate)
@@ -106,7 +106,7 @@ kinship_matrix <- pcrelateToMatrix(pcrelate_results)
 # Clean up
 close(genoData)
 ```
-##Report the number of individuals who have a kinship > 0.1
+## Report the number of individuals who have a kinship > 0.1
 ```{r}
 # Convert kinship matrix to a regular matrix if it's a Matrix object
 if (inherits(kinship_matrix, "Matrix")) {
@@ -137,9 +137,9 @@ num_individuals <- length(unique(c(high_kinship$ID1, high_kinship$ID2)))
 cat("Number of individual pairs with kinship > 0.1:", num_pairs, "\n")
 cat("Number of unique individuals involved:", num_individuals, "\n")
 ```
-#Task 2: Compute mQTLs with Mixed Models
+# Task 2: Compute mQTLs with Mixed Models
 
-## load needed packages
+##  load needed packages
 ```{r}
 library(SNPRelate)
 library(SeqVarTools)
@@ -308,7 +308,7 @@ output <- data.frame(
 write_xlsx(output, path = "mQTL_significant_p1e4.xlsx")
 ```
 
-#Task 3: Inflation factor calculation
+# Task 3: Inflation factor calculation
 ```{r}
 library(SummarizedExperiment)
 
@@ -356,7 +356,7 @@ print(lambda_results[order(lambda_results$lambda, decreasing = TRUE), ])
 cat("\nAverage inflation factor (weighted):", round(average_lambda, 4), "\n")
 ```
 
-#Task 4: Manhattan Plot
+# Task 4: Manhattan Plot
 ```{r}
 library(qqman)
 
@@ -408,8 +408,8 @@ ggplot(plot_data, aes(x = BP, y = -log10(P), color = color)) +
         )
 ```
 
-#Task 5: Metabolic Networks
-##Correct metabolites for covariates and kinship using polygenic() residuals
+# Task 5: Metabolic Networks
+## Correct metabolites for covariates and kinship using polygenic() residuals
 ```{r}
 library(Matrix)
 library(coxme) # Load coxme for lmekin
@@ -451,7 +451,7 @@ for (metab in colnames(metabolites)) {
 head(corrected_metabs)
 ```
 
-##Use GeneNet to Compute Partial Correlation Network
+## Use GeneNet to Compute Partial Correlation Network
 ```{r}
 # Load required package
 library(GeneNet)
@@ -510,15 +510,15 @@ if (nrow(sig_edges) > 0) {
         cat("\nNo significant edges found at q < 0.05\n")
 }
 ```
-##Visualize in Cytoscape
+## Visualize in Cytoscape
 ![Alt text or caption](cytoscapeNetwork.png)
-##Analyze Network in Cytoscape
+## Analyze Network in Cytoscape
 ```{r}
 cytoscapeNetworkAnalysis <- read.csv("cytoscapeNetworkAnalysis.csv", header = TRUE)
 print(cytoscapeNetworkAnalysis)
 ```
 
-#Task 6: Annotate Significant SNPs
+# Task 6: Annotate Significant SNPs
 ```{r}
 library(dplyr)
 
@@ -542,7 +542,7 @@ write.table(annovar_input, "top_snps_annovar_input.txt",
         sep = "\t", quote = FALSE, row.names = FALSE, col.names = FALSE
 )
 ```
-#Task 7: Regional plots using SNIPA
+# Task 7: Regional plots using SNIPA
 ```{r}
 top5_snps <- allResults %>%
         arrange(Score.pval) %>%
